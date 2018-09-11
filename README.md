@@ -15,7 +15,7 @@ To fulfill those requirements I've choosed the following setup:
  - Again the author enforce the existence of tools witch already exists, by mentioning the Hashicorp products. They are awesome but maybe Cloudformation could be a good choice.In terms of how to provision I've thought about using AWS's Fargate, all tho I'm not familiar with, it seems smaller then the other options;
 
 ### The App
-```
+```go
 package main
 
 import (
@@ -40,7 +40,7 @@ Very simple example of an web app.
 
 ### The Dockerfile
 
-```
+```Dockerfile
 # Using multi-stage build to avoid all the unecessary stuff
 # as the result it's a binary executable
 FROM golang:1.10.1-alpine as builder
@@ -68,10 +68,10 @@ COPY --from=builder /go/src/github.com/lucasmdrs/exams/hello /usr/bin/hello
 CMD ["hello"]
 ```
 
-To build our docker image
+To create our docker image
 
 # docker-compose / Makefile
-```
+```yaml
 # Using version 3 allow us to leaverage Docker Swarm (if necessary)
 version: '3'
 
@@ -90,7 +90,7 @@ With you don't wanna get stuck with the logs, run `docker-compose up -d` instead
 
 **Important:** Remember to use `--build` on your `docker-compose` command if you made any changes in the app.
 
-```
+```Makefile
 build:
 	docker build -t pagarme:hello .
 
