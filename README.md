@@ -70,7 +70,7 @@ CMD ["hello"]
 
 To create our docker image
 
-# docker-compose / Makefile
+### Docker-compose / Makefile
 ```yaml
 # Using version 3 allow us to leaverage Docker Swarm (if necessary)
 version: '3'
