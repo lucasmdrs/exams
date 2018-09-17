@@ -1,0 +1,188 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Fargate Deploy.
+# CIDR configurations
+Mappings:
+  SubnetConfig:
+    VPC:
+      CIDR: '10.0.0.0/16'
+    Subnet1:
+      CIDR: '10.0.0.0/24'
+    Subnet2:
+      CIDR: '10.0.1.0/24'
+Resources:
+   # Creates the VPC
+   VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: !FindInMap ['SubnetConfig', 'VPC', 'CIDR']
+
+   # Creates two subnets
+   PublicSubnet1:
+     Type: AWS::EC2::Subnet
+     Properties:
+       VpcId: !Ref 'VPC'
+       AvailabilityZone: !Select [0, !GetAZs '']
+       CidrBlock: !FindInMap ['SubnetConfig', 'Subnet1', 'CIDR']
+       MapPublicIpOnLaunch: true
+   PublicSubnet2:
+     Type: AWS::EC2::Subnet
+     Properties:
+       VpcId: !Ref 'VPC'
+       AvailabilityZone: !Select [1, !GetAZs '']
+       CidrBlock: !FindInMap ['SubnetConfig', 'Subnet2', 'CIDR']
+       MapPublicIpOnLaunch: true
+ 
+   # Network configuration
+   InternetGateway:
+     Type: AWS::EC2::InternetGateway
+   GatewayAttachement:
+     Type: AWS::EC2::VPCGatewayAttachment
+     Properties:
+       VpcId: !Ref 'VPC'
+       InternetGatewayId: !Ref 'InternetGateway'
+   PublicRouteTable:
+     Type: AWS::EC2::RouteTable
+     Properties:
+       VpcId: !Ref 'VPC'
+   PublicRoute:
+     Type: AWS::EC2::Route
+     DependsOn: GatewayAttachement
+     Properties:
+       RouteTableId: !Ref 'PublicRouteTable'
+       DestinationCidrBlock: '0.0.0.0/0'
+       GatewayId: !Ref 'InternetGateway'
+   PublicSubnet1RouteTableAssociation:
+     Type: AWS::EC2::SubnetRouteTableAssociation
+     Properties:
+       SubnetId: !Ref PublicSubnet1
+       RouteTableId: !Ref PublicRouteTable
+   PublicSubnet2RouteTableAssociation:
+     Type: AWS::EC2::SubnetRouteTableAssociation
+     Properties:
+       SubnetId: !Ref PublicSubnet2
+       RouteTableId: !Ref PublicRouteTable
+ 
+   # ECS Cluster
+   ECSCluster:
+     Type: AWS::ECS::Cluster
+ 
+   # A security group for the container running in Fargate.
+   FargateContainerSecurityGroup:
+     Type: AWS::EC2::SecurityGroup
+     Properties:
+       GroupDescription: Fargate container access
+       VpcId: !Ref 'VPC'
+       SecurityGroupIngress:
+           - CidrIp: 0.0.0.0/0
+             IpProtocol: -1
+   
+   # IAM role to allow ECS to manage resource
+   ECSRole:
+     Type: AWS::IAM::Role
+     Properties:
+       AssumeRolePolicyDocument:
+         Statement:
+         - Effect: Allow
+           Principal:
+             Service: [ecs.amazonaws.com,ecs-tasks.amazonaws.com]
+           Action: ['sts:AssumeRole']
+       Path: /
+       Policies:
+       # Tasks policy
+       - PolicyName: AmazonECSTaskExecutionRolePolicy
+         PolicyDocument:
+           Statement:
+             - Effect: Allow
+               Action:
+                   # Allow access to ECR images
+                 - 'ecr:GetAuthorizationToken'
+                 - 'ecr:BatchCheckLayerAvailability'
+                 - 'ecr:GetDownloadUrlForLayer'
+                 - 'ecr:BatchGetImage'
+               Resource: '*'
+       - PolicyName: ecs-service
+         PolicyDocument:
+           Statement:
+             - Effect: Allow
+               Action:
+                 - 'ec2:AttachNetworkInterface'
+                 - 'ec2:CreateNetworkInterface'
+                 - 'ec2:CreateNetworkInterfacePermission'
+                 - 'ec2:DeleteNetworkInterface'
+                 - 'ec2:DeleteNetworkInterfacePermission'
+                 - 'ec2:Describe*'
+                 - 'ec2:DetachNetworkInterface'
+               Resource: '*'      
+
+   # Task
+   HelloContainerTask:
+     Type: AWS::ECS::TaskDefinition
+     Properties:
+       Family: pagarme
+       Cpu: 256
+       Memory: 512
+       NetworkMode: awsvpc
+       RequiresCompatibilities:
+         - FARGATE
+       ExecutionRoleArn: !Ref ECSRole
+       ContainerDefinitions:
+         - Name: hello
+           Image: 076151417512.dkr.ecr.us-east-1.amazonaws.com/pagarme:hello
+           PortMappings:
+             - ContainerPort: 80
+               Protocol: tcp
+   # Container Service
+   HelloContainerService:
+     Type: AWS::ECS::Service
+     Properties:
+       TaskDefinition: !Ref HelloContainerTask
+       Cluster: !Ref ECSCluster
+       LaunchType: FARGATE
+       DesiredCount: 1
+       DeploymentConfiguration:
+         MaximumPercent: 200
+         MinimumHealthyPercent: 70
+       NetworkConfiguration:
+         AwsvpcConfiguration:
+           AssignPublicIp: ENABLED
+           Subnets:
+             - !Ref PublicSubnet1
+             - !Ref PublicSubnet2
+           SecurityGroups:
+             - !Ref FargateContainerSecurityGroup
+  
+
+# CloudFormation output values from template.
+Outputs:
+  ClusterName:
+    Description: Name of the ECS cluster
+    Value: !Ref 'ECSCluster'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'ClusterName' ] ]
+  ECSRole:
+    Description: The ARN of the ECS role
+    Value: !GetAtt 'ECSRole.Arn'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'ECSRole' ] ]
+  VPCId:
+    Description: VPC's ID
+    Value: !Ref 'VPC'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'VPCId' ] ]
+  PublicSubnet1:
+    Description: First public subnet
+    Value: !Ref 'PublicSubnet1'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'PublicSubnet1' ] ]
+  PublicSubnet2:
+    Description: Second public subnet
+    Value: !Ref 'PublicSubnet2'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'PublicSubnet2' ] ]
+  FargateContainerSecurityGroup:
+    Description: Fargate containers security group
+    Value: !Ref 'FargateContainerSecurityGroup'
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'FargateContainerSecurityGroup' ] ]
