@@ -105,3 +105,14 @@ Use `make run` to build and start the docker container;
 Use `make deploy` to build and deploy the application to AWS;
 
 ### The AWS Deployment
+
+To deploy the container to AWS, I decided to use Cloudformation. The cloudformation file (fargate.yml) will create every resource necessary:
+- Network: VPC,Subnets,InternetGateways, etc
+- ECS: Cluster, Task, Services
+
+All you'll need it's a AWS account and aws-cli configured.
+
+Start the deployment by running:
+`make deploy`
+
+By the end of the deploy you'll have a Public IP with the port of the running application.
