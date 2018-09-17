@@ -98,6 +98,28 @@ run: build
 	docker run -d --rm --name hello -p 8080:8080 pagarme:hello && docker logs -f hello
   
 deploy: build
+	# check if repository exists otherwise creates it.
+	`$(AWS_REPO) > /dev/null` || aws ecr create-repository --repository-name pagarme
+	# login to ecr registry
+	aws ecr get-login --no-include-email | sh
+	# tag local image
+	docker tag pagarme:hello `$(AWS_REPO) | jq -r '.repositories[] | .repositoryUri'`:hello 
+	# psuh image to registry
+	docker push `$(AWS_REPO) | jq -r '.repositories[] | .repositoryUri'`:hello
+	# replace the registry ID in the Cloudformation file.
+	sed -i "s/REGISTRY_ID/`$(AWS_REPO) | jq -r '.repositories[] | .repositoryUri'| cut -d'.' -f1`/g" fargate.yml
+	# create the stack
+	aws cloudformation create-stack --stack-name pagarme --template-body file://`pwd`/fargate.yml --capabilities CAPABILITY_IAM
+	# whait for it to complete
+	while [[ "CREATE_IN_PROGRESS" == "`aws cloudformation describe-stacks --stack-name pagarme | jq -r '.Stacks[] | .StackStatus'`" ]]; do sleep 1; done
+	echo "Deploy finished:"
+	# display the result state of the stack creation
+	aws cloudformation describe-stacks --stack-name pagarme | jq -r '.Stacks[] | .StackStatus'
+	# get the public IP address created for the resource, as it's a fresh AWS environment this command works fine
+	# if you already have eni created you should add the "select" jq parameter to choose the one it's releated to
+	# your new ecs service task
+	aws ec2 describe-network-interfaces | jq -r '.NetworkInterfaces[] | ( .PrivateIpAddresses[] | .Association | .PublicIp ) as $$pIp | "\($$pIp):8080"'
+
 ```
 
 Use `make build` to build the app container;
@@ -107,8 +129,9 @@ Use `make deploy` to build and deploy the application to AWS;
 ### The AWS Deployment
 
 To deploy the container to AWS, I decided to use Cloudformation. The cloudformation file (fargate.yml) will create every resource necessary:
-- Network: VPC,Subnets,InternetGateways, etc
-- ECS: Cluster, Task, Services
+- Network: VPC,Subnets,InternetGateways..
+- IAM: Roles
+- ECS: Cluster, Task, Services..
 
 All you'll need it's a AWS account and aws-cli configured.
 
